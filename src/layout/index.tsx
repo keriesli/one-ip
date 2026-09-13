@@ -85,7 +85,7 @@ export function AppLayout() {
             className="flex items-center gap-2 text-sm font-semibold"
             aria-label={t("IP 网络工具概览")}
           >
-            <img src="/icon.svg" width="24" height="24" alt="" />
+            <img src="/icon.png" width="24" height="24" alt="" />
           </Link>
           <div className="flex items-center gap-1">
             <ShareSite />
@@ -117,7 +117,7 @@ export function AppLayout() {
                 aria-label={t("IP 网络工具概览")}
                 className="site-home-link flex size-9 shrink-0 items-center justify-center rounded-lg focus-visible:outline-2 focus-visible:outline-ring"
               >
-                <img src="/icon.svg" alt="" width="32" height="32" />
+                <img src="/icon.png" alt="" width="32" height="32" />
               </Link>
               <ScrollArea className="nav-tabs-scroll">
                 {list}
