@@ -10,64 +10,78 @@ import { ResponsiveDialog } from "@/components/ui/responsive-dialog";
 import { t } from "@/i18n";
 import type { Geo } from "@/lib/types";
 import type { Site } from "./api";
-import { categoryStatusClass } from "./category-status";
+import { categoryStatusClass, matchesSiteCategory } from "./category-status";
+import { siteCategories } from "./site-categories";
 
 const ExitMap = lazy(() => import("./exit-map"));
-const categories = [
-  ["all", "全部"],
-  ["ai", "AI 服务"],
-  ["crypto", "加密货币"],
-  ["ecommerce", "跨境电商"],
-  ["media", "流媒体"],
-  ["social", "社交社区"],
-  ["dev", "开发平台"],
-  ["tools", "实用工具"],
-  ["domestic", "国内"],
-  ["static", "静态资源"],
-  ["speed", "测速服务"],
-];
 type Row = Site & {
   geo?: Geo;
   visible: boolean;
   pending: boolean;
+  reachable?: boolean;
   geoPending: boolean;
+};
+
+export type SiteFilter = {
+  kind: "site" | "ip";
+  value: string;
 };
 
 export function ExitGroups({
   rows,
+  category,
+  onCategoryChange,
   onSelect,
+  onFilter,
+  activeFilter,
 }: {
   rows: Row[];
+  category: string;
+  onCategoryChange: (category: string) => void;
   onSelect: (name: string) => void;
+  onFilter: (filter: SiteFilter) => void;
+  activeFilter: SiteFilter | null;
 }) {
   const [selected, setSelected] = useState<string | null>(null);
-  const [category, setCategory] = useState("all");
 
-  const filtered = rows.filter(
-    (row) =>
-      category === "all" ||
-      (category === "domestic"
-        ? row.type === "domestic"
-        : row.extra?.includes(category)),
-  );
+  const filtered = rows.filter((row) => matchesSiteCategory(row, category));
   const groups = new Map<string, Row[]>();
   for (const row of filtered) {
     const key =
-      !row.visible || row.pending ? "pending" : (row.geo?.ip ?? "blocked");
+      !row.visible || row.pending
+        ? "pending"
+        : row.reachable === false
+          ? "unreachable"
+          : (row.geo?.ip ?? "egress-unreadable");
     groups.set(key, [...(groups.get(key) ?? []), row]);
   }
   const priority = (key: string) =>
-    key === "blocked" ? 0 : key === "pending" ? 1 : 2;
+    key === "unreachable"
+      ? 0
+      : key === "egress-unreadable"
+        ? 1
+        : key === "pending"
+          ? 2
+          : 3;
+  const selectGroup = (key: string) => {
+    setSelected(key);
+    if (
+      key !== "unreachable" &&
+      key !== "egress-unreadable" &&
+      key !== "pending"
+    )
+      onFilter({ kind: "ip", value: key });
+  };
   return (
     <>
       <Card className="mb-3 gap-0 rounded-lg py-0 shadow-none">
         <CardContent className="flex min-w-0 items-center gap-2 p-2">
           <div
             role="group"
-            aria-label={t("站点分类")}
+            aria-label={t("home.siteCategory")}
             className="flex min-w-0 flex-1 gap-0.5 overflow-x-auto whitespace-nowrap [scrollbar-width:none]"
           >
-            {categories.map(([value, label]) => {
+            {siteCategories.map(([value, label]) => {
               const items = rows.filter(
                 (row) =>
                   value === "all" ||
@@ -83,11 +97,11 @@ export function ExitGroups({
                   className={`h-9 shrink-0 px-3 text-sm font-medium ${categoryStatusClass(items)}`}
                   aria-pressed={category === value}
                   onClick={() => {
-                    setCategory(value);
+                    onCategoryChange(value);
                     setSelected(null);
                   }}
                 >
-                  {t(label)} (
+                  {label} (
                   {
                     items.filter(
                       (row) => row.visible && !row.pending && row.geo,
@@ -106,11 +120,18 @@ export function ExitGroups({
             <Suspense
               fallback={
                 <div className="h-[402px]">
-                  <Pending>{t("加载地图…")}</Pending>
+                  <Pending>{t("home.loadingMap")}</Pending>
                 </div>
               }
             >
-              <ExitMap rows={filtered} onSelect={onSelect} mapOnly />
+              <ExitMap
+                rows={filtered}
+                onSelect={(name) => {
+                  onSelect(name);
+                  onFilter({ kind: "site", value: name });
+                }}
+                mapOnly
+              />
             </Suspense>
           </CardContent>
         </Card>
@@ -121,36 +142,58 @@ export function ExitGroups({
               .map(([key, items]) => {
                 const geo =
                   items.find((row) => row.geo?.country)?.geo ?? items[0].geo;
-                const special = key === "blocked" || key === "pending";
+                const special =
+                  key === "unreachable" ||
+                  key === "egress-unreadable" ||
+                  key === "pending";
                 return (
                   <Card
                     key={key}
-                    className="gap-0 rounded-lg border py-0 shadow-none transition-colors hover:border-primary/25"
+                    className={`gap-0 rounded-lg border py-0 shadow-none transition-colors hover:border-primary/25 ${activeFilter?.kind === "ip" && activeFilter.value === key ? "border-primary ring-1 ring-primary/20" : ""}`}
                   >
                     <CardContent className="space-y-1.5 p-3">
                       <div className="flex min-w-0 items-center justify-between gap-2">
-                        <div className="min-w-0 flex-1 overflow-hidden whitespace-nowrap text-sm font-medium [&_.ip-text]:max-w-full [&_.ip-text]:min-w-0">
+                        <button
+                          type="button"
+                          className="min-w-0 flex-1 overflow-hidden text-left whitespace-nowrap text-sm font-medium hover:text-primary [&_.ip-text]:max-w-full [&_.ip-text]:min-w-0"
+                          onClick={() => selectGroup(key)}
+                          aria-pressed={
+                            activeFilter?.kind === "ip" &&
+                            activeFilter.value === key
+                          }
+                        >
                           {special ? (
                             <span
                               className={
-                                key === "blocked"
+                                key === "unreachable"
                                   ? "text-destructive"
-                                  : "text-muted-foreground"
+                                  : key === "egress-unreadable"
+                                    ? "text-warning"
+                                    : "text-muted-foreground"
                               }
                             >
-                              {t(key === "blocked" ? "检测受阻" : "检测中…")}
+                              {t(
+                                key === "unreachable"
+                                  ? "home.websiteAccessBlocked"
+                                  : key === "egress-unreadable"
+                                    ? "home.egressUnavailable"
+                                    : "common.checking",
+                              )}
                             </span>
                           ) : (
-                            <IpText ip={key} />
+                            <IpText ip={key} link={false} />
                           )}
-                        </div>
+                        </button>
                         <Button
                           size="sm"
                           variant="secondary"
                           className="h-6 shrink-0 rounded-full px-2 text-[11px]"
-                          onClick={() => setSelected(key)}
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            selectGroup(key);
+                          }}
                         >
-                          {items.length} {t("个站点")} ›
+                          {items.length} {t("home.sites")} ›
                         </Button>
                       </div>
                       {!special && (
@@ -169,7 +212,8 @@ export function ExitGroups({
                                     : undefined,
                                 ]
                                   .filter(Boolean)
-                                  .join(" · ") || t("归属信息暂不可用")
+                                  .join(" · ") ||
+                                t("common.locationDetailsAreUnavailable")
                               }
                             />
                           </div>
@@ -187,12 +231,23 @@ export function ExitGroups({
         onOpenChange={(open) => {
           if (!open) setSelected(null);
         }}
-        title={t("出口站点")}
+        title={t("home.egressSite")}
         description=""
       >
-        {selected && selected !== "blocked" && selected !== "pending" && (
-          <IpText ip={selected} />
+        {selected === "unreachable" && (
+          <p className="mb-2 text-sm text-destructive">
+            {t("home.websiteAccessBlockedLabel")}
+          </p>
         )}
+        {selected === "egress-unreadable" && (
+          <p className="mb-2 text-sm text-warning">
+            {t("home.websiteReachableButEgressIpWasNotReadable")}
+          </p>
+        )}
+        {selected &&
+          !["unreachable", "egress-unreadable", "pending"].includes(
+            selected,
+          ) && <IpText ip={selected} />}
         <div className="flex flex-wrap gap-2">
           {(groups.get(selected ?? "") ?? []).map((row) => {
             const host =
@@ -205,13 +260,14 @@ export function ExitGroups({
                 key={row.name}
                 asChild
                 variant="secondary"
-                className={`h-8 max-w-full gap-1.5 px-2.5 [&_.site-icon]:size-4 ${selected === "blocked" ? "bg-destructive/10 text-destructive" : ""}`}
+                className={`h-8 max-w-full gap-1.5 px-2.5 [&_.site-icon]:size-4 ${selected === "unreachable" ? "bg-destructive/10 text-destructive" : selected === "egress-unreadable" ? "bg-warning/10 text-warning" : ""}`}
               >
                 <a
                   href={url}
                   target="_blank"
                   rel="noopener noreferrer"
                   title={url}
+                  onClick={() => onFilter({ kind: "site", value: row.name })}
                 >
                   <SiteLogo src={row.icon} />
                   <span className="truncate">

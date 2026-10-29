@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
+import { workerCatalog } from "./service-catalog.mjs";
 import worker from "../.worker-test/index.js";
 import {
   parseDmit,
@@ -8,13 +9,13 @@ import {
   parseAws,
   parseBandwagon,
   getCloudStatus,
-} from "../public/worker/cloud-status.js";
+} from "../worker/cloud-status.js";
 
-const services = JSON.parse(readFileSync("public/worker/services.json"));
+const services = JSON.parse(readFileSync("worker/services.json"));
 test("VPS and major cloud catalogs match and use official destinations", () => {
   assert.deepEqual(
     services,
-    JSON.parse(readFileSync("src/views/status/services.json")),
+    workerCatalog(JSON.parse(readFileSync("src/views/status/services.json"))),
   );
   assert.equal(new Set(services.map((s) => s.id)).size, services.length);
   for (const id of [

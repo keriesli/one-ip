@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { parseGrokFeed } from "../public/worker/ai-status.js";
+import { parseGrokFeed } from "../worker/ai-status.js";
 
 const feed = (items) => `<rss version="2.0"><channel>${items}</channel></rss>`;
 const item = (state) =>

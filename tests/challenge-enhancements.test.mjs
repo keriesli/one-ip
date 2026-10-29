@@ -2,9 +2,11 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import { createRequire } from "node:module";
-import ts from "typescript";
-import { challengeConfig, verifyChallenge } from "../public/worker/challenges.js";
+import { compile } from "./compile.mjs";
+import { challengeConfig, verifyChallenge } from "../worker/challenges.js";
 import { compareExits } from "../src/views/claude/api.ts";
+import { t } from "../src/i18n/index.ts";
+import { localizeApiMessage } from "../src/i18n/api-message.ts";
 
 const require = createRequire(import.meta.url);
 test("optional non-interactive widget uses its own secret and hostname validation", async () => {
@@ -36,7 +38,8 @@ test("exit comparisons preserve unknown and normalize equivalent IPv6 addresses"
 
 test("configured challenge starts on mount, reports interaction, verifies token and cleans up", async () => {
   const source = readFileSync("src/views/browser/challenges.tsx", "utf8").replace("function Challenge(", "export function Challenge(");
-  const output = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, jsx: ts.JsxEmit.ReactJSX } }).outputText;
+  const output = compile(source, { format: "cjs", loader: "tsx" });
+  const widgetOutput = compile(readFileSync("src/lib/challenge-widget.ts", "utf8"), { format: "cjs" });
   const previousDocument = globalThis.document;
   const previousWindow = globalThis.window;
   const states = [];
@@ -48,7 +51,8 @@ test("configured challenge starts on mount, reports interaction, verifies token 
     createElement: () => ({ style: {}, remove() {} }),
     head: { append(script) { queueMicrotask(() => script.onload()); } },
   };
-  const exports = {};
+  const module = { exports: {} };
+  const widgetModule = { exports: {} };
   const mockRequire = name => {
     if (name === "react") return {
       useRef: () => ({ current: host }),
@@ -56,24 +60,27 @@ test("configured challenge starts on mount, reports interaction, verifies token 
       useEffect(callback) { effect = callback; },
     };
     if (name === "react/jsx-runtime") return require(name);
-    if (name === "@/i18n") return { t: value => value };
+    if (name === "@/i18n") return { t };
+    if (name === "@/i18n/api-message") return { localizeApiMessage };
+    if (name === "@/lib/challenge-widget") return widgetModule.exports;
     if (name === "@tanstack/react-query") return { useMutation: () => ({ mutateAsync: async input => { request = input; return { success: true, message: "verified" }; } }) };
     return new Proxy({}, { get: (_, key) => key });
   };
   let cleanup;
   try {
-    new Function("require", "exports", output)(mockRequire, exports);
-    exports.Challenge({ provider: { id: "turnstile", sitekey: "key", configured: true, name: "Turnstile" } });
+    new Function("require", "module", widgetOutput)(mockRequire, widgetModule);
+    new Function("require", "module", output)(mockRequire, module);
+    module.exports.Challenge({ provider: { id: "turnstile", sitekey: "key", configured: true, name: "Turnstile" } });
     cleanup = effect();
     await new Promise(resolve => setImmediate(resolve));
     assert.ok(options, "render must run without clicking a start button");
     assert.equal(options.retry, "never");
     options["before-interactive-callback"]();
-    assert.ok(states.includes("需要交互"));
+    assert.ok(states.includes(t("challenges.interactionRequired")));
     await options.callback("token");
     assert.equal(request.token, "token");
     assert.equal(request.provider, "turnstile");
-    assert.ok(states.includes("验证通过"));
+    assert.ok(states.includes(t("challenges.verified")));
     cleanup(); cleanup = undefined;
     assert.equal(request.signal.aborted, true);
     assert.equal(removed, true);

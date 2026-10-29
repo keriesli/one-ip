@@ -1,17 +1,13 @@
 import { useState } from "react";
+import { DataTable } from "@/components/data-table";
 import { OverflowDetailText } from "@/components/overflow-detail-text";
 import { SiteLogo } from "@/components/site-logo";
-import {
-  PageHeading,
-  Pending,
-  ActionButton,
-  DataTable,
-} from "@/components/toolkit";
+import { PageHeading, Pending, ActionButton } from "@/components/toolkit";
 import { Card, CardContent } from "@/components/ui/card";
 import { t } from "@/i18n";
-import { request } from "@/lib/network";
 import { useQueries } from "@tanstack/react-query";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { LegacyColumnDef as ColumnDef } from "@tanstack/react-table/legacy";
+import { checkCdnProvider } from "./api";
 import { providers, providerWebsite } from "./providers";
 
 type Row = {
@@ -24,42 +20,45 @@ type Row = {
 const columns: ColumnDef<Row>[] = [
   {
     accessorKey: "name",
-    header: t("厂商"),
+    header: t("common.vendor"),
     cell: ({ row }) => (
       <span className="site-cell">
         <SiteLogo website={providerWebsite(row.original.name)} />
-        <OverflowDetailText text={row.original.name} title={t("CDN 厂商")} />
+        <OverflowDetailText
+          text={row.original.name}
+          title={t("cdn.cdnProvider")}
+        />
       </span>
     ),
   },
   {
     id: "node",
-    header: t("节点 / 响应标识"),
+    header: t("cdn.nodeResponseIdentifier"),
     cell: ({ row }) =>
       row.original.loading ? (
-        <Pending>{t("检测中...")}</Pending>
+        <Pending>{t("common.checkingDots")}</Pending>
       ) : (
-        <OverflowDetailText text={row.original.node ?? t("未知")} />
+        <OverflowDetailText text={row.original.node ?? t("common.unknown")} />
       ),
   },
   {
     accessorKey: "cache",
-    header: t("缓存"),
+    header: t("cdn.cached"),
     cell: ({ row }) => (
       <OverflowDetailText
         text={row.original.cache ?? "—"}
-        title={t("缓存状态")}
+        title={t("cdn.cacheStatus")}
       />
     ),
   },
   {
     id: "status",
-    header: t("状态"),
+    header: t("common.status"),
     cell: ({ row }) =>
       row.original.loading ? (
-        <Pending>{t("检测中...")}</Pending>
+        <Pending>{t("common.checkingDots")}</Pending>
       ) : (
-        <OverflowDetailText text={row.original.error ?? t("已完成")} />
+        <OverflowDetailText text={row.original.error ?? t("common.complete")} />
       ),
   },
 ];
@@ -71,58 +70,21 @@ export default function CdnPage() {
       retry: false,
       staleTime: 0,
       refetchOnWindowFocus: false,
-      queryFn: async ({ signal }: { signal: AbortSignal }) => {
-        if (provider.trace || provider.text) {
-          const text = await request<string>(
-            provider.url,
-            { signal, cache: "no-store" },
-            "text",
-          );
-          const node = provider.trace
-            ? text.match(/^colo=(.+)$/m)?.[1]?.trim()
-            : text.trim();
-          if (!node || node.length > 200 || node.includes("<"))
-            throw new Error(t("未返回有效节点标识"));
-          return { node, cache: "—" };
-        }
-        const headers = await request<Headers>(
-          provider.url,
-          { signal, method: "HEAD", cache: "no-store" },
-          "headers",
-        );
-        const values = (provider.headers ?? []).flatMap((key) => {
-          const value = headers.get(key);
-          if (!value) return [];
-          if (key === "xcc") {
-            try {
-              return [`${key}: ${atob(value)}`];
-            } catch {
-              return [];
-            }
-          }
-          if (key === "server" && !/bunnycdn-[\w-]+/i.test(value)) return [];
-          return [`${key}: ${value}`];
-        });
-        if (!values.length) throw new Error(t("节点头未公开或跨域受限"));
-        return {
-          node: values.join(" · "),
-          cache:
-            headers.get("x-cache") ?? headers.get("cf-cache-status") ?? "—",
-        };
-      },
+      queryFn: ({ signal }: { signal: AbortSignal }) =>
+        checkCdnProvider(provider, signal),
     })),
   });
   const busy = queries.some((query) => query.isFetching);
   return (
     <>
-      <PageHeading title={t("CDN 命中节点")} description="" />
+      <PageHeading title={t("cdn.cdnServingNodes")} />
       <div className="toolbar">
         <ActionButton busy={busy} onClick={() => setRound((n) => n + 1)}>
-          {busy ? t("检测中...") : t("重新检测")}
+          {busy ? t("common.checkingDots") : t("common.runAgain")}
         </ActionButton>
         <span className="small muted">
           {queries.filter((query) => query.isSuccess).length}/{providers.length}{" "}
-          {t("可读取")}
+          {t("cdn.readable")}
         </span>
       </div>
       <Card>

@@ -9,6 +9,8 @@ lerna-debug.log*
 
 node_modules
 dist
+dist-pages
+.output
 dist-ssr
 *.local
 .wrangler
@@ -30,3 +32,4 @@ worker-configuration.d.ts
 
 # Deployment secrets (never commit)
 .secrets.*.env
+.env.docker

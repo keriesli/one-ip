@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { challengeConfig } from "../public/worker/challenges.js";
+import { challengeConfig } from "../worker/challenges.js";
 import { visibleTools } from "../src/layout/routes.ts";
 
 test("zero configuration hides verification but keeps ordinary tools", () => {

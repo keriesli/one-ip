@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { ipType } from "../public/worker/ip-type.js";
+import { ipType } from "../worker/ip-type.js";
 
 test("IP classification validates results, caches exact IPs and suppresses unavailable results", async () => {
   const originalFetch = globalThis.fetch;

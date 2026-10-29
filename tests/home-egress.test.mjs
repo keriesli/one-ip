@@ -1,19 +1,23 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import ts from "typescript";
+import { compile } from "./compile.mjs";
 import * as jsx from "react/jsx-runtime";
+import { t } from "../src/i18n/index.ts";
 
-const { outputText } = ts.transpileModule(readFileSync("src/views/home/index.tsx", "utf8"), {
-  compilerOptions: { module: ts.ModuleKind.CommonJS, jsx: ts.JsxEmit.ReactJSX },
+const outputText = compile(readFileSync("src/views/home/index.tsx", "utf8"), {
+  format: "cjs",
+  loader: "tsx",
 });
 function render(primary, split, client = {}, capture = () => {}) {
   const batches = [[], primary];
   const require = (name) => {
     if (name === "react/jsx-runtime") return jsx;
     if (name === "react") return { useEffect() {}, useState: () => [false, () => {}] };
-    if (name === "@/i18n") return { t: (text) => text };
+    if (name === "@/i18n") return { t };
     if (name === "@/hooks/use-mobile") return { useIsMobile: () => false };
+    if (name === "@/hooks/use-available-tools") return { useAvailableTools: () => [] };
+    if (name === "@/layout/routes") return { toolGroups: { network: [], ai: [] } };
     if (name === "@/hooks/use-sort-animation") return { useSortAnimation: () => null };
     if (name === "@/components/connectivity") return { homeTargets: [] };
     if (name === "./sites.json") return [{ name: "Example" }];
@@ -23,9 +27,9 @@ function render(primary, split, client = {}, capture = () => {}) {
     };
     return new Proxy({}, { get: (_, key) => key });
   };
-  const exports = {};
-  new Function("require", "exports", outputText)(require, exports);
-  const tree = exports.HomePage();
+  const module = { exports: {} };
+  new Function("require", "module", outputText)(require, module);
+  const tree = module.exports.HomePage();
   capture(tree);
   return JSON.stringify(tree);
 }
@@ -37,8 +41,8 @@ test("domestic egress comes first and external IPv4 remains separate", () => {
   const proxy = { ip: "192.0.2.2" };
   const result = render([{ data: ipv4 }, { data: proxy }, failed], [{ data: ipv6 }, { data: { ip: "192.0.2.3" } }]);
   assert.ok(result.indexOf(ipv4.ip) < result.indexOf(proxy.ip));
-  assert.ok(result.includes("IPv4 · 国内探测"));
-  assert.ok(result.includes("IPv4 · 外部探测"));
+  assert.ok(result.includes(t("home.ipv4DomesticProbe")));
+  assert.ok(result.includes(t("home.ipv4ExternalProbe")));
   assert.ok(!result.includes(ipv6.ip));
   assert.ok(!result.includes("192.0.2.3"));
 });
@@ -49,8 +53,8 @@ test("matching domestic and external IPv4 produces one card", () => {
 });
 test("failed domestic probe never promotes a proxy or routed IPv6 to local egress", () => {
   const result = render([failed, { data: ipv4 }, failed], [{ data: ipv6 }]);
-  assert.ok(!result.includes("未获取到 IPv"));
-  assert.ok(result.includes("IPv4 · 外部探测"));
+  assert.ok(!result.includes(t("home.couldNotDetectIpv")));
+  assert.ok(result.includes(t("home.ipv4ExternalProbe")));
   assert.ok(!result.includes(ipv6.ip));
 });
 test("IPv6 and failed probes do not create overview cards", () => {
@@ -70,9 +74,18 @@ test("home retest cancels previous runs before resetting only home query familie
     },
     resetQueries: async () => { calls.push("reset"); },
   };
+  const findClick = (node) => {
+    if (!node || typeof node !== "object") return;
+    if (typeof node.props?.onClick === "function") return node.props.onClick;
+    const children = node.props?.children;
+    for (const child of Array.isArray(children) ? children : [children]) {
+      const onClick = findClick(child);
+      if (onClick) return onClick;
+    }
+  };
   let refresh;
   render([failed, failed, failed], [], client, (tree) => {
-    refresh = tree.props.children[0].props.children[1].props.onClick;
+    refresh = findClick(tree);
   });
   await refresh();
   assert.deepEqual(calls, ["cancel", "reset"]);

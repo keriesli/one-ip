@@ -5,7 +5,8 @@ import { Pending } from "@/components/toolkit";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { UnderlineHover } from "@/components/underline-hover";
 import { useSortAnimation } from "@/hooks/use-sort-animation";
-import { t } from "@/i18n";
+import { t, locale } from "@/i18n";
+import { localizeCatalogItem } from "@/lib/localize-catalog";
 import { aiPlatforms } from "@/views/ai/platforms";
 import { probeAiDomain } from "@/views/ai/probe";
 import { getStatus } from "@/views/status/api";
@@ -13,21 +14,17 @@ import { statusOrder } from "@/views/status/order";
 import rawservices from "@/views/status/services.json";
 import { useQueries } from "@tanstack/react-query";
 
-const services = rawservices.map((item) => ({
-  ...item,
-  name: t(item.name),
-  note: item.note ? t(item.note) : item.note,
-}));
+const services = rawservices.map(localizeCatalogItem);
 
 const featured = ["9", "4", "10", "5", "0", "19", "15", "1"].map((id) =>
   services.find((service) => service.id === id)!,
 );
 const statusLabels: Record<string, string> = {
-  none: t("正常运行"),
-  minor: t("轻微故障"),
-  major: t("严重故障"),
-  critical: t("重大故障"),
-  maintenance: t("维护中"),
+  none: t("common.operational"),
+  minor: t("common.minorOutage"),
+  major: t("common.majorOutage"),
+  critical: t("common.criticalOutage"),
+  maintenance: t("common.underMaintenance"),
 };
 export function PlatformSummary() {
   const ref = useRef<HTMLDivElement>(null);
@@ -89,7 +86,7 @@ export function PlatformSummary() {
     <div ref={ref} className="grid grid-cols-1 gap-3 mb-3 md:grid-cols-2">
       <Card>
         <CardHeader>
-          <CardTitle>{t("AI 访问概览")}</CardTitle>
+          <CardTitle>{t("home.aiAccessOverview")}</CardTitle>
         </CardHeader>
         <CardContent>
           <div
@@ -130,12 +127,12 @@ export function PlatformSummary() {
                     }}
                   >
                     {query.isPending ? (
-                      <Pending>{t("待检测")}</Pending>
+                      <Pending>{t("common.notChecked")}</Pending>
                     ) : latency == null || latency < 0 ? (
                       query.data?.status === "restricted" ? (
-                        t("检测受限")
+                        t("common.checkRestricted")
                       ) : (
-                        t("未连通")
+                        t("common.unreachable")
                       )
                     ) : (
                       `${latency} ms`
@@ -146,19 +143,17 @@ export function PlatformSummary() {
             })}
           </div>
           <p className="home-note mt-3">
-            {t(
-              "显示本次探测资源的 HTTP 响应耗时；未连通表示本次探测失败。点击平台可查看详情并打开官网。",
-            )}
+            {t("home.showsHttpResponseTimeProbeUnreachableMeansProbe")}
           </p>
         </CardContent>
       </Card>
       <Card>
         <CardHeader>
           <div className="row-between">
-            <CardTitle>{t("服务状态")}</CardTitle>
+            <CardTitle>{t("navigation.serviceStatus")}</CardTitle>
             <UnderlineHover asChild>
-              <Link to="/status" className="small muted">
-                {t("全部服务 ›")}
+              <Link to="/ai/status" className="small muted">
+                {t("home.allServicesLabel")}
               </Link>
             </UnderlineHover>
           </div>
@@ -169,8 +164,16 @@ export function PlatformSummary() {
               .map((service, index) => ({ service, query: statuses[index] }))
               .sort(
                 (a, b) =>
-                  statusOrder(a.query.data?.status?.indicator) -
-                  statusOrder(b.query.data?.status?.indicator),
+                  statusOrder(
+                    a.query.isError
+                      ? undefined
+                      : a.query.data?.status?.indicator,
+                  ) -
+                  statusOrder(
+                    b.query.isError
+                      ? undefined
+                      : b.query.data?.status?.indicator,
+                  ),
               )
               .map(({ service, query }) => {
                 const indicator = query.data?.status?.indicator;
@@ -181,7 +184,7 @@ export function PlatformSummary() {
                   >
                     <UnderlineHover asChild>
                       <Link
-                        to={`/status?service=${service.id}`}
+                        to={`/ai/status?service=${service.id}`}
                         className="flex min-w-0 items-center gap-2 text-foreground"
                         style={{ display: "flex" }}
                       >
@@ -192,19 +195,61 @@ export function PlatformSummary() {
                       </Link>
                     </UnderlineHover>
                     <span
-                      className="home-metric shrink-0"
-                      style={{
-                        color: !indicator
-                          ? "var(--muted-foreground)"
-                          : indicator === "none"
-                            ? "var(--success)"
-                            : "var(--danger)",
-                      }}
+                      className="flex shrink-0 flex-col items-end gap-0.5 text-right"
+                      title={query.error?.message}
                     >
-                      {query.isPending ? (
-                        <Pending>{t("查询中")}</Pending>
-                      ) : (
-                        (statusLabels[indicator ?? ""] ?? t("待确认"))
+                      <span
+                        className="home-metric"
+                        style={{
+                          color: query.isError
+                            ? "var(--warning)"
+                            : !indicator
+                              ? "var(--muted-foreground)"
+                              : indicator === "none"
+                                ? "var(--success)"
+                                : "var(--danger)",
+                        }}
+                      >
+                        {query.isPending ? (
+                          <Pending>{t("common.lookingUpLabel")}</Pending>
+                        ) : query.isError ? (
+                          t(
+                            query.data
+                              ? "status.updateFailed"
+                              : "status.lookupFailed",
+                          )
+                        ) : (
+                          (statusLabels[indicator ?? ""] ??
+                          t("common.pendingConfirmation"))
+                        )}
+                      </span>
+                      {query.isError && query.data && (
+                        <>
+                          <span className="text-[10px] text-muted-foreground">
+                            {t("status.lastKnownStatus", [
+                              statusLabels[indicator ?? ""] ??
+                                t("common.pendingConfirmation"),
+                            ])}
+                          </span>
+                          <time
+                            dateTime={query.data.fetchedAt}
+                            className="text-[10px] text-muted-foreground"
+                            title={t("status.lastSuccessfulUpdate", [
+                              new Date(query.data.fetchedAt).toLocaleString(
+                                locale,
+                              ),
+                            ])}
+                            aria-label={t("status.lastSuccessfulUpdate", [
+                              new Date(query.data.fetchedAt).toLocaleString(
+                                locale,
+                              ),
+                            ])}
+                          >
+                            {new Date(query.data.fetchedAt).toLocaleTimeString(
+                              locale,
+                            )}
+                          </time>
+                        </>
                       )}
                     </span>
                   </div>
@@ -212,7 +257,7 @@ export function PlatformSummary() {
               })}
           </div>
           <p className="home-note mt-3">
-            {t("来自官方状态源；点击服务查看组件与事件。")}
+            {t("home.officialStatusSourcesClickServiceComponentsIncidents")}
           </p>
         </CardContent>
       </Card>

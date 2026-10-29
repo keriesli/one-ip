@@ -9,7 +9,7 @@ import {
   parseAzure,
   getCloudStatus,
   parseBandwagon,
-} from "../public/worker/cloud-status.js";
+} from "../worker/cloud-status.js";
 
 const ali = (data) => ({ success: true, code: 200, data });
 const tx = (Data) => ({ Response: { Data } });

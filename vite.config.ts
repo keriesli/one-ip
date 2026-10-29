@@ -1,32 +1,7 @@
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { rm } from "node:fs/promises";
-import { resolve } from "node:path";
 import { fileURLToPath, URL } from "node:url";
-import { defineConfig, type Plugin } from "vite";
-
-function excludeBackendSource(): Plugin {
-  let output = "";
-  return {
-    name: "exclude-backend-source",
-    configResolved(config) {
-      output = resolve(config.root, config.build.outDir, "worker");
-    },
-    async closeBundle() {
-      await rm(output, { recursive: true, force: true });
-    },
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        if (/^\/worker(?:\/|\?|$)/.test(req.url ?? "")) {
-          res.statusCode = 404;
-          res.end("Not found");
-          return;
-        }
-        next();
-      });
-    },
-  };
-}
+import { defineConfig } from "vite";
 
 const headers = {
   "Content-Security-Policy": "frame-ancestors 'none'",
@@ -41,7 +16,6 @@ export default defineConfig(() => {
     plugins: [
       react(),
       tailwindcss(),
-      excludeBackendSource(),
       {
         name: "app-build-version",
         generateBundle() {

@@ -10,6 +10,9 @@ export interface PingResponse {
     probe: { country: string; city: string; network: string };
     result: {
       status: string;
+      statusCode?: number;
+      resolvedAddress?: string;
+      timings?: { total?: number };
       stats?: { min: number; avg: number; max: number; loss: number };
       rawOutput?: string;
     };
@@ -17,6 +20,7 @@ export interface PingResponse {
 }
 export type PingInput = {
   host: string;
+  protocol?: "icmp" | "https";
   preferred?: boolean;
   nodes?: string[];
   regions?: string[];
@@ -28,10 +32,12 @@ async function runBatch(
   signal: AbortSignal,
   onProgress?: (data: PingResponse) => void,
 ) {
+  const { getPingVerification } = await import("./verification");
+  const verification = await getPingVerification(signal);
   const created = await endpoint<{ id: string }>("/ping/start", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(input),
+    body: JSON.stringify({ ...input, verification }),
     signal,
   });
   for (let i = 0; i < 12; i++) {
@@ -46,7 +52,7 @@ async function runBatch(
     await new Promise<void>((resolve, reject) => {
       const abort = () => {
         clearTimeout(timer);
-        reject(new DOMException(t("已停止"), "AbortError"));
+        reject(new DOMException(t("ping.stopped"), "AbortError"));
       };
       const timer = setTimeout(
         () => {
@@ -59,7 +65,7 @@ async function runBatch(
       if (signal.aborted) abort();
     });
   }
-  throw new Error(t("部分节点尚未完成，可查看已返回结果或重新测试。"));
+  throw new Error(t("ping.someNodesHaveFinishedViewReturnedResultsTest"));
 }
 
 export interface PingNode {
@@ -90,6 +96,7 @@ export async function runPing(
   signal.throwIfAborted();
   const cacheKey = JSON.stringify({
     host: input.host.trim().toLowerCase(),
+    protocol: input.protocol ?? "icmp",
     nodes: input.nodes ? [...new Set(input.nodes)].sort() : undefined,
     regions: input.regions ? [...new Set(input.regions)].sort() : undefined,
     perRegion: input.perRegion,
@@ -108,11 +115,12 @@ export async function runPing(
   const batches: PingInput[] = input.nodes
     ? Array.from({ length: Math.ceil(input.nodes.length / 50) }, (_, i) => ({
         host: input.host,
+        protocol: input.protocol,
         preferred: input.preferred,
         nodes: input.nodes!.slice(i * 50, i * 50 + 50),
       }))
     : [input];
-  if (!batches.length) throw new Error(t("请选择至少一个地区"));
+  if (!batches.length) throw new Error(t("ping.selectAtLeastOneRegion"));
   let collected: PingResponse["results"] = [];
   let final: PingResponse | undefined;
   for (let index = 0; index < batches.length; index++) {

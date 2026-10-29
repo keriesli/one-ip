@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { readFileSync } from "node:fs";
-import { getAiStatus, parseDeepSeek, parseGemini } from "../public/worker/ai-status.js";
+import { getAiStatus, parseDeepSeek, parseGemini } from "../worker/ai-status.js";
+import { workerCatalog } from "./service-catalog.mjs";
 
 const deepFeed = (state) => `<rss><channel><item><title>API issue</title><guid>event-1</guid><link>https://status.deepseek.com/incidents/1</link><description>&lt;p&gt;&lt;strong&gt;Status:&lt;/strong&gt; ${state}&lt;/p&gt;</description></item></channel></rss>`;
 test("DeepSeek RSS reads explicit status and excludes resolved events", () => {
@@ -39,8 +40,8 @@ test("Gemini reads public page identifiers and retries the status API without ex
 });
 test("browser and Worker share the same verified AI status sources", () => {
   const web = JSON.parse(readFileSync('src/views/status/services.json'));
-  const worker = JSON.parse(readFileSync('public/worker/services.json'));
-  assert.deepEqual(web, worker);
+  const worker = JSON.parse(readFileSync('worker/services.json'));
+  assert.deepEqual(workerCatalog(web), worker);
   for (const id of ['31','32','35']) assert.ok(web.find(s => s.id === id).url);
   assert.equal(web.find(s => s.id === '35').page, 'https://status.moonshot.cn');
 });

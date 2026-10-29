@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { normalizeStatus } from "../public/worker/service-status.js";
+import { normalizeStatus } from "../worker/service-status.js";
 test("Instatus UP and future maintenance stay operational", () => {
   const result = normalizeStatus({ page: { status: "UP" }, activeMaintenances: [{ status: "NOTSTARTEDYET" }] });
   assert.equal(result.status.indicator, "none");

@@ -3,6 +3,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { test } from "node:test";
 import {
   activeNavigationRoute,
+  activeTool,
   navigationRoutes,
   legacyRoutes,
   toolGroups,
@@ -17,7 +18,7 @@ test("removed DNS and news routes have no page source or navigation entries", ()
     "src/views/claude/articles",
     "src/views/gpt/articles",
     "src/lib/article-paths.json",
-    "public/worker/dns.js",
+    "worker/dns.js",
     "public/claude",
   ])
     assert.equal(existsSync(path), false, path);
@@ -33,9 +34,11 @@ test("animated navigation maps IP details and live status to their parent tools"
       route.value,
     );
   }
-  assert.equal(activeNavigationRoute("/network/ip/1.1.1.1"), "/network/");
-  assert.equal(activeNavigationRoute("/status/claude"), "/status/");
-  assert.equal(activeNavigationRoute("/status/openai"), "/status/");
+  assert.equal(activeNavigationRoute("/lookup/ip/1.1.1.1"), "/lookup/");
+  assert.equal(activeNavigationRoute("/ai/status/claude"), "/ai/");
+  assert.equal(activeNavigationRoute("/ai/status/openai"), "/ai/");
+  assert.equal(activeTool("/lookup/ip/1.1.1.1"), "/lookup/ip");
+  assert.equal(activeTool("/ai/status/claude"), "/ai/status");
   for (const path of [
     "/dns/",
     "/news/",
@@ -88,7 +91,7 @@ test("tool routes select their grouped navigation", () => {
     "/network/ping/",
   ])
     assert.equal(activeNavigationRoute(path), "/network/");
-  assert.equal(activeNavigationRoute("/network/whois/"), "/network/");
+  assert.equal(activeNavigationRoute("/lookup/whois/"), "/lookup/");
   assert.equal(activeNavigationRoute("/ai/claude/"), "/ai/");
   assert.equal(navigationRoutes.length, 5);
 });
@@ -104,5 +107,16 @@ test("all module links map to exactly one parent and legacy paths redirect to ca
   for (const to of Object.values(legacyRoutes))
     assert.notEqual(activeNavigationRoute(to), "not-found", to);
   assert.equal(legacyRoutes["/network/webrtc"], "/browser/privacy");
-  assert.equal(legacyRoutes["/ai/gpt/status"], "/status/openai");
+  assert.equal(legacyRoutes["/ai/gpt/status"], "/ai/status/openai");
+  // Pre-merge URLs keep working.
+  assert.equal(legacyRoutes["/network/ip/:ip"], "/lookup/ip");
+  assert.equal(legacyRoutes["/network/whois"], "/lookup/whois");
+  assert.equal(legacyRoutes["/network/subdomains"], "/lookup/subdomains");
+  assert.equal(legacyRoutes["/status"], "/ai/status");
+  for (const from of Object.keys(legacyRoutes))
+    assert.equal(
+      activeNavigationRoute(from.replace(":ip", "1.1.1.1")),
+      "not-found",
+      from,
+    );
 });

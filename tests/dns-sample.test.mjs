@@ -17,11 +17,14 @@ test("DNS samples use unique hosts, bypass cache, and return resolver data", asy
     assert.deepEqual(await sampleDnsExit(signal), {
       ip: "1.1.1.1",
       geo: "test",
+      isp: "test",
     });
     await sampleDnsExit(signal);
     assert.notEqual(hosts[0], hosts[1]);
     assert.ok(
-      hosts.every((host) => /^[a-f0-9]{10}\.ipv4\.surfsharkdns\.com$/.test(host)),
+      hosts.every((host) =>
+        /^[a-f0-9]{10}\.ipv4\.surfsharkdns\.com$/.test(host),
+      ),
     );
     globalThis.fetch = async () => Response.json({});
     await assert.rejects(sampleDnsExit(signal), /DNS/);

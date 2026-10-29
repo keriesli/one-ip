@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { getAiStatus } from "../public/worker/ai-status.js";
-import { parseTelegramStatus } from "../public/worker/telegram-status.js";
+import { getAiStatus } from "../worker/ai-status.js";
+import { parseTelegramStatus } from "../worker/telegram-status.js";
 
 const now = Date.parse("2026-09-12T15:15:00Z");
 const sample = {

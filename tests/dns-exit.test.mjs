@@ -5,10 +5,21 @@ import { parseDnsResponse, detectDnsExits } from "../src/views/dns-exit/api.ts";
 test("DNS parsers keep all resolvers and exclude Fastly client IP", () => {
   assert.deepEqual(
     parseDnsResponse("Fastly", {
-      dns_resolver_info: { ip: "8.8.8.8", cc: "US", as_name: "Google" },
+      dns_resolver_info: {
+        ip: "8.8.8.8",
+        cc: "US",
+        as_name: "GOOGLE - Google LLC, US",
+      },
       client_ip_info: { ip: "1.2.3.4" },
     }),
-    [{ ip: "8.8.8.8", geo: "US · Google" }],
+    [
+      {
+        ip: "8.8.8.8",
+        geo: "US · GOOGLE - Google LLC, US",
+        country: "US",
+        isp: "Google LLC",
+      },
+    ],
   );
   assert.equal(
     parseDnsResponse("BrowserLeaks DNS6", {
@@ -19,7 +30,41 @@ test("DNS parsers keep all resolvers and exclude Fastly client IP", () => {
   );
   assert.deepEqual(
     parseDnsResponse("Surfshark", { "8.8.8.8": { ISP: "Google", Leak: true } }),
-    [{ ip: "8.8.8.8", geo: "Google" }],
+    [{ ip: "8.8.8.8", geo: "Google", isp: "Google" }],
+  );
+  assert.deepEqual(
+    parseDnsResponse("BrowserLeaks DNS4", {
+      "8.8.4.4": ["us", "United States, Los Angeles", "Google LLC"],
+      "1.1.1.1": ["", "Somewhere", "None"],
+    }),
+    [
+      {
+        ip: "8.8.4.4",
+        geo: "United States, Los Angeles · Google LLC",
+        country: "US",
+        isp: "Google LLC",
+      },
+      { ip: "1.1.1.1", geo: "Somewhere" },
+    ],
+  );
+  assert.deepEqual(
+    parseDnsResponse("Surfshark", {
+      "8.8.8.8": { ISP: "Google", Country: "United States", CountryCode: "US" },
+    }),
+    [
+      {
+        ip: "8.8.8.8",
+        geo: "United States · Google",
+        country: "US",
+        isp: "Google",
+      },
+    ],
+  );
+  assert.deepEqual(
+    parseDnsResponse("Fastly", {
+      dns_resolver_info: { ip: "not found", cc: "US" },
+    }),
+    [],
   );
   assert.deepEqual(
     parseDnsResponse("Fastly", { client_ip_info: { ip: "1.2.3.4" } }),

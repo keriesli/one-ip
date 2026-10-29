@@ -1,5 +1,7 @@
 import { t } from "@/i18n";
-import { endpoint, request, trace } from "@/lib/network";
+import { sameIp } from "@/lib/ip-address";
+import { localizeCatalogItem } from "@/lib/localize-catalog";
+import { endpoint, probe, request, trace } from "@/lib/network";
 import type { Geo } from "@/lib/types";
 
 export const getMyIp = (signal?: AbortSignal) =>
@@ -17,12 +19,13 @@ export async function getGeo(
       `https://api.ip.sb/geoip/${encodeURIComponent(ip)}`,
       options(),
     );
-    if (!data.ip || (!data.country && !data.isp))
-      throw new Error(t("归属信息不完整"));
+    if (!sameIp(data?.ip, ip) || (!data.country && !data.isp))
+      throw new Error(t("home.incompleteLocationInformation"));
     return { ...data, ip, source: "ip.sb" };
   } catch {
     signal?.throwIfAborted();
     const data = await request<{
+      ip?: string;
       success: boolean;
       country?: string;
       country_code?: string;
@@ -33,7 +36,8 @@ export async function getGeo(
       longitude?: number;
       timezone?: { id?: string };
     }>(`https://ipwho.is/${encodeURIComponent(ip)}`, options());
-    if (!data.success) throw new Error(t("归属信息暂不可用，请稍后重试"));
+    if (data?.success !== true || !sameIp(data.ip, ip))
+      throw new Error(t("home.locationDetailsAreUnavailablePleaseRetryLater"));
     return {
       ip,
       country: data.country,
@@ -88,10 +92,12 @@ export async function getDomesticIp(signal?: AbortSignal): Promise<Geo> {
       if (signal?.aborted) throw error;
     }
   }
-  throw new Error(t("国内出口未知：目标站点可能限制跨域读取"));
+  throw new Error(t("home.chinaEgressUnknownTargetSiteMayRestrictCross"));
 }
 export interface Site {
+  nameKey?: string;
   note?: string;
+  noteKey?: string;
   extra?: string[];
   name: string;
   type: string;
@@ -100,12 +106,46 @@ export interface Site {
   url?: string;
   icon: string;
 }
+const fallbackSiteProbeUrl =
+  "https://necaptcha.nosdn.127.net/ab7f4275c1744aa28e0a8f3a1c58c532.png";
+
+export function siteProbeUrl(site: Pick<Site, "domain" | "url">) {
+  return site.domain
+    ? `https://${site.domain}/`
+    : (site.url ?? fallbackSiteProbeUrl);
+}
+
+export async function probeSite(site: Site, signal?: AbortSignal) {
+  return (await probe(siteProbeUrl(site), signal)) >= 0;
+}
+
+export interface SiteInspection {
+  geo?: Geo;
+  reachable: boolean;
+}
+
+export async function inspectSite(
+  site: Site,
+  signal?: AbortSignal,
+): Promise<SiteInspection> {
+  if (site.method === "unsupported")
+    return { reachable: await probeSite(site, signal) };
+  try {
+    return { geo: await detectSite(site, signal), reachable: true };
+  } catch (error) {
+    if (signal?.aborted) throw error;
+    return { reachable: await probeSite(site, signal) };
+  }
+}
+
 export async function detectSite(
   site: Site,
   signal?: AbortSignal,
 ): Promise<Geo> {
   if (site.method === "unsupported")
-    throw new Error(t(site.note ?? "未获取到可读取的出口 IP"));
+    throw new Error(
+      localizeCatalogItem(site).note ?? t("home.noReadableEgressIpObtained"),
+    );
   signal = signal
     ? AbortSignal.any([signal, AbortSignal.timeout(3000)])
     : AbortSignal.timeout(3000);
@@ -136,14 +176,11 @@ export async function detectSite(
       )?.[1];
     }
     if (!ip || !/^[\da-fA-F:.]+$/.test(ip))
-      throw new Error(t("未获取到可读取的出口 IP"));
+      throw new Error(t("home.noReadableEgressIpObtained"));
     geo = { ip, source: site.name };
   } else {
-    const url =
-      site.url ??
-      "https://necaptcha.nosdn.127.net/ab7f4275c1744aa28e0a8f3a1c58c532.png";
     const headers = await request<Headers>(
-      url,
+      site.url ?? fallbackSiteProbeUrl,
       { method: "HEAD", cache: "no-store", signal },
       "headers",
     );
@@ -152,7 +189,7 @@ export async function detectSite(
       headers.get("x-request-ip") ??
       headers.get("x-response-cinfo");
     if (!ip || !/^[\da-fA-F:.]+$/.test(ip))
-      throw new Error(t("未获取到可读取的出口 IP"));
+      throw new Error(t("home.noReadableEgressIpObtained"));
     geo = { ip, source: site.name };
   }
   return geo;
@@ -177,6 +214,6 @@ export async function getBrowserIp(
       ? !data.ip.includes(":")
       : !/^\d{1,3}(\.\d{1,3}){3}$/.test(data.ip))
   )
-    throw new Error(t("未获取到有效 IP"));
+    throw new Error(t("home.noValidIpObtained"));
   return { ip: data.ip, source: "ipify" };
 }

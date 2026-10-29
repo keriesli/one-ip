@@ -2,10 +2,12 @@ import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { test } from "node:test";
-import ts from "typescript";
 import { resolveLocale, t } from "../src/i18n/index.ts";
+import { localizeApiMessage } from "../src/i18n/api-message.ts";
+import { messages } from "../src/i18n/messages.ts";
 
-const en = JSON.parse(readFileSync("src/i18n/en.json", "utf8"));
+const en = messages.en;
+const zh = messages["zh-CN"];
 test("saved language wins; browser language supplies a safe default", () => {
   assert.equal(resolveLocale("en", ["zh-CN"]), "en");
   assert.equal(resolveLocale("zh-CN", ["en-US"]), "zh-CN");
@@ -14,8 +16,8 @@ test("saved language wins; browser language supplies a safe default", () => {
   assert.equal(resolveLocale(null, []), "en");
 });
 test("interpolation leaves user values intact", () => {
-  assert.equal(t("请求失败 ({0})", [503]), "请求失败 (503)");
-  assert.equal(t("{0}", ["{1} <script>"]), "{1} <script>");
+  assert.equal(t("api.requestFailed", [503]), "请求失败 (503)");
+  assert.equal(t("api.requestFailed", ["{1} <script>"]), "请求失败 ({1} <script>)");
 });
 test("all literal translation calls have English entries and matching placeholders", () => {
   function scan(dir) {
@@ -23,16 +25,13 @@ test("all literal translation calls have English entries and matching placeholde
       const file = join(dir, entry.name);
       if (entry.isDirectory()) { scan(file); continue; }
       if (!/\.tsx?$/.test(file)) continue;
-      const source = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.Latest, true);
-      function visit(node) {
-        if (ts.isCallExpression(node) && node.expression.getText(source) === "t" && ts.isStringLiteral(node.arguments[0])) {
-          const key = node.arguments[0].text;
-          assert.ok(en[key], `${file}: missing ${key}`);
-          assert.deepEqual(en[key].match(/\{\d+\}/g)?.sort() ?? [], key.match(/\{\d+\}/g)?.sort() ?? [], key);
-        }
-        ts.forEachChild(node, visit);
+      const source = readFileSync(file, "utf8");
+      const calls = /\bt\(\s*"((?:\\.|[^"\\])*)"/g;
+      for (const match of source.matchAll(calls)) {
+        const key = JSON.parse(`"${match[1]}"`);
+        assert.ok(en[key], `${file}: missing ${key}`);
+        assert.deepEqual(en[key].match(/\{\d+\}/g)?.sort() ?? [], zh[key].match(/\{\d+\}/g)?.sort() ?? [], key);
       }
-      visit(source);
     }
   }
   scan("src");
@@ -45,10 +44,10 @@ test("English runtime translates messages and switches with blocked storage with
   try {
     const runtime = await import("../src/i18n/index.ts?english-test");
     assert.equal(runtime.locale, "en");
-    assert.equal(runtime.t("网络检测"), "Network checks");
-    assert.equal(runtime.t("请求失败 ({0})", [503]), "Request failed (503)");
-    assert.equal(runtime.t("外部数据源暂不可用 (502)"), "Upstream source unavailable (502)");
-    assert.equal(runtime.t("Untranslated upstream text"), "Untranslated upstream text");
+    assert.equal(runtime.t("navigation.networkChecks"), "Network checks");
+    assert.equal(runtime.t("api.requestFailed", [503]), "Request failed (503)");
+    assert.equal(runtime.t("api.upstreamUnavailable", [502]), "Upstream source unavailable (502)");
+    assert.equal(localizeApiMessage("Untranslated upstream text"), "Untranslated upstream text");
     runtime.setLocale("zh-CN");
     assert.equal(destination, "https://example.test/status?group=AI&lang=zh-CN#details");
   } finally {

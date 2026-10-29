@@ -18,6 +18,7 @@ env:
   HUSKY: 0
   TZ: Asia/Shanghai
   WRANGLER_SEND_METRICS: false
+  CF_DEPLOY_TARGET: ${{ vars.CF_DEPLOY_TARGET || 'workers' }}
 
 jobs:
   build:
@@ -39,17 +40,67 @@ jobs:
         run: pnpm build
       - name: Test Worker and application
         run: pnpm test
-      - name: Upload static assets
+      - name: Prepare Pages bundle
+        run: node scripts/build-server.mjs pages
+      - name: Upload deployment assets
         if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: one-ip-dist
-          path: dist
+          path: |
+            dist
+            dist-pages
           if-no-files-found: error
           retention-days: 3
 
+  docker:
+    name: Build and smoke-test Docker image
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: one-ip:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Check runtime image contents
+        run: |
+          docker run --rm --entrypoint sh one-ip:ci -c \
+            'test ! -e /app/node_modules && test ! -e /app/src && test -f /app/.output/server.mjs && test -f /app/dist/index.html'
+      - name: Run container and probe endpoints
+        run: |
+          docker run -d --name one-ip-ci --read-only --cap-drop ALL \
+            --security-opt no-new-privileges:true -p 8080:8080 \
+            -e PUBLIC_ORIGIN=http://127.0.0.1:8080 one-ip:ci
+          for i in $(seq 1 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' one-ip-ci)" = healthy ] && break
+            sleep 2
+          done
+          docker inspect -f '{{.State.Health.Status}}' one-ip-ci | grep -qx healthy
+          expect() {
+            code=$(curl -s -o /dev/null -w '%{http_code}' "${@:2}")
+            [ "$code" = "$1" ] || { echo "::error::$* returned $code"; exit 1; }
+          }
+          expect 200 -H 'Accept: text/html' http://127.0.0.1:8080/
+          expect 200 -H 'Accept: text/html' http://127.0.0.1:8080/ip/1.1.1.1
+          expect 404 http://127.0.0.1:8080/assets/missing.js
+          expect 404 http://127.0.0.1:8080/_headers
+          expect 404 http://127.0.0.1:8080/worker/index.js
+          expect 200 http://127.0.0.1:8080/api/map/config
+          expect 403 -X POST -H 'Origin: https://evil.example' -H 'Content-Type: application/json' \
+            -d '{}' http://127.0.0.1:8080/api/browser/challenges/verify
+          curl -sI http://127.0.0.1:8080/ | grep -qi '^content-security-policy:'
+      - name: Container logs
+        if: always()
+        run: docker logs one-ip-ci || true
+
   deploy:
-    name: Create or update one-ip Worker
+    name: Deploy to Cloudflare
     if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.ENABLE_CF_DEPLOY == 'true'
     needs: build
     runs-on: ubuntu-latest
@@ -68,8 +119,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: one-ip-dist
-          path: dist
-      - name: Deploy Worker and static assets
+      - name: Deploy selected Cloudflare target
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
@@ -78,4 +128,8 @@ jobs:
             echo "::error::Configure CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID in repository secrets."
             exit 1
           fi
-          pnpm exec wrangler deploy --env=""
+          case "$CF_DEPLOY_TARGET" in
+            workers) pnpm exec wrangler deploy --env="" ;;
+            pages) pnpm deploy:pages --branch main ;;
+            *) echo "::error::CF_DEPLOY_TARGET must be workers or pages."; exit 1 ;;
+          esac

@@ -1,24 +1,58 @@
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useState } from "react";
 import { t } from "@/i18n";
+import { countryCode } from "@/lib/country";
 import { Globe2 } from "lucide-react";
 
-export function CountryFlag({ code }: { code?: string }) {
-  const country =
-    code && /^[a-z]{2}$/i.test(code) ? code.toLowerCase() : undefined;
+const sizes = {
+  sm: { className: "", width: 40 },
+  lg: { className: " country-flag-lg", width: 80 },
+  xl: { className: " country-flag-xl", width: 160 },
+} as const;
+
+/** Lazily loaded flag with a shimmer placeholder and a globe fallback. */
+export function CountryFlag({
+  code,
+  size = "sm",
+}: {
+  code?: string;
+  size?: keyof typeof sizes;
+}) {
+  const country = countryCode(code);
+  const { className, width } = sizes[size];
+  const src = country
+    ? `https://flagcdn.com/w${width}/${country}.png`
+    : undefined;
+  const [status, setStatus] = useState<{
+    src?: string;
+    state: "loaded" | "error";
+  }>({ state: "loaded" });
+  const state = !src
+    ? "fallback"
+    : status.src !== src
+      ? "loading"
+      : status.state === "error"
+        ? "fallback"
+        : "loaded";
   return (
-    <Avatar
-      className="country-flag rounded-sm after:hidden"
-      aria-label={country?.toUpperCase() ?? t("未知地区")}
+    <span
+      role="img"
+      aria-label={country?.toUpperCase() ?? t("common.unknownRegion")}
+      className={`country-flag${className}`}
+      data-state={state}
     >
-      <AvatarImage
-        src={country ? `https://flagcdn.com/w40/${country}.png` : undefined}
-        alt={country?.toUpperCase() ?? ""}
-        className="rounded-none object-contain"
-        referrerPolicy="no-referrer"
-      />
-      <AvatarFallback className="rounded-none bg-transparent">
-        <Globe2 className="size-3.5 text-muted-foreground" />
-      </AvatarFallback>
-    </Avatar>
+      {state === "fallback" ? (
+        <Globe2 aria-hidden="true" />
+      ) : (
+        <img
+          src={src}
+          alt=""
+          loading="lazy"
+          decoding="async"
+          referrerPolicy="no-referrer"
+          onLoad={() => setStatus({ src, state: "loaded" })}
+          onError={() => setStatus({ src, state: "error" })}
+        />
+      )}
+    </span>
   );
 }

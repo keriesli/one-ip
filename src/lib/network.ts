@@ -1,6 +1,21 @@
 import { t } from "@/i18n";
+import { localizeApiMessage } from "@/i18n/api-message";
 
-export type ResponseMode = "json" | "text" | "opaque" | "headers";
+export type ResponseMode =
+  | "json"
+  | "text"
+  | "opaque"
+  | "headers"
+  | "response"
+  // Unchecked Response, including opaque and non-2xx, for probes that classify status themselves.
+  | "raw";
+export class HttpRequestError extends Error {
+  status: number;
+  constructor(status: number, message: string) {
+    super(message);
+    this.status = status;
+  }
+}
 
 /** Only HTTP transport for browser probes and API calls. Never proxy browser probes. */
 export async function request<T>(
@@ -21,19 +36,26 @@ export async function request<T>(
   try {
     return await Promise.race([
       (async () => {
-        const response = await fetch(url, { ...init, signal });
+        const response = await fetch(url, {
+          ...init,
+          signal,
+          referrerPolicy: "no-referrer",
+        });
         if (mode === "opaque") return undefined as T;
+        if (mode === "raw") return response as T;
         if (!response.ok) {
-          let message = t("请求失败 ({0})", [response.status]);
+          let message = t("api.requestFailed", [response.status]);
           try {
             const body = await response.json();
-            if (typeof body.error === "string") message = t(body.error);
+            if (typeof body.error === "string")
+              message = localizeApiMessage(body.error);
           } catch {
             /* Non-JSON upstream. */
           }
-          throw new Error(message);
+          throw new HttpRequestError(response.status, message);
         }
         if (mode === "headers") return response.headers as T;
+        if (mode === "response") return response as T;
         return (
           mode === "text" ? response.text() : response.json()
         ) as Promise<T>;
@@ -63,7 +85,7 @@ export function parseTrace(text: string) {
       }),
   );
   if (!fields.ip || !/^[\da-fA-F:.]+$/.test(fields.ip))
-    throw new Error(t("目标站点未返回可读取的出口 IP"));
+    throw new Error(t("common.targetSiteDidReturnReadableEgressIp"));
   return {
     ip: fields.ip,
     country_code: fields.loc,

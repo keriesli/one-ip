@@ -3,11 +3,12 @@ import { readFileSync, existsSync } from "node:fs";
 import { parseEnv } from "node:util";
 
 const environment = process.argv[2];
+const pages = process.argv.includes("--pages");
 if (environment !== "production")
   throw new Error("Only production is supported");
 const filename = `.secrets.${environment}.env`;
 if (!existsSync(filename)) {
-  console.log("No optional challenge configuration; nothing to synchronize.");
+  console.log("No optional configuration; nothing to synchronize.");
   process.exit(0);
 }
 const ignored = spawnSync("git", ["check-ignore", "-q", filename]);
@@ -23,6 +24,7 @@ const allowed = [
   "RECAPTCHA_SITE_KEY",
   "RECAPTCHA_SECRET",
   "RECAPTCHA_HOSTNAMES",
+  "TIANDITU_TOKEN",
 ];
 if (Object.keys(values).some((key) => !allowed.includes(key)))
   throw new Error("Secret file contains unsupported configuration keys");
@@ -40,7 +42,9 @@ if (process.argv.includes("--check")) {
 } else {
   const result = spawnSync(
     "pnpm",
-    ["exec", "wrangler", "secret", "bulk", "--env", ""],
+    pages
+      ? ["exec", "wrangler", "pages", "secret", "bulk", "--cwd", "deploy/pages"]
+      : ["exec", "wrangler", "secret", "bulk", "--env", ""],
     {
       input: JSON.stringify(secrets),
       encoding: "utf8",

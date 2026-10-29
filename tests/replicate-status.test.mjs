@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { test } from "node:test";
-import { parseReplicate, getAiStatus } from "../public/worker/ai-status.js";
+import { parseReplicate, getAiStatus } from "../worker/ai-status.js";
 
 const component = {
   id: "fvgfcmy66tdr",
@@ -58,7 +58,7 @@ test("Replicate includes its active incidents and maintenance but excludes resol
   );
 });
 test("migrated AI services use verified JSON endpoints", async (t) => {
-  const services = JSON.parse(readFileSync("public/worker/services.json"));
+  const services = JSON.parse(readFileSync("worker/services.json"));
   assert.equal(
     services.find((s) => s.id === "10").url,
     "https://status.perplexity.com/api/v2/summary.json",

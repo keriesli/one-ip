@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { CompactText } from "@/components/compact-text";
+import { DataTable } from "@/components/data-table";
 import {
-  DataTable,
   Facts,
   ToolCard,
   PageHeading,
@@ -20,10 +20,9 @@ import { ResponsiveDialog } from "@/components/ui/responsive-dialog";
 import { UnderlineHover } from "@/components/underline-hover";
 import { t } from "@/i18n";
 import { useQuery } from "@tanstack/react-query";
-import type { ColumnDef } from "@tanstack/react-table";
+import type { LegacyColumnDef as ColumnDef } from "@tanstack/react-table/legacy";
 import { ChevronDown } from "lucide-react";
 import { toast } from "sonner";
-import type { FingerprintAlgorithm } from "./collect";
 import { consistencyChecks, automationChecks, fingerprint } from "./collect";
 import type { Check } from "./consistency";
 import { DeepPanel } from "./deep-panel";
@@ -39,42 +38,44 @@ import {
 import { TlsFingerprint } from "./tls-fingerprint";
 import { withDetectionAnimation } from "./with-feedback";
 
+const checkStatusLabels: Record<Check["status"], string> = {
+  consistent: t("browser.check.consistent"),
+  different: t("browser.check.different"),
+  detected: t("browser.check.detected"),
+  "not-detected": t("browser.check.notDetected"),
+  unavailable: t("browser.check.unavailable"),
+};
+
 const columns: ColumnDef<Check>[] = [
-  { accessorKey: "name", header: t("项目") },
+  { accessorKey: "name", header: t("common.item") },
   {
     accessorKey: "status",
-    header: t("结果"),
-    cell: ({ row }) => t(row.original.status),
+    header: t("common.result"),
+    cell: ({ row }) => checkStatusLabels[row.original.status],
   },
   {
     accessorKey: "detail",
-    header: t("说明"),
+    header: t("common.description"),
     cell: ({ row }) => <CompactText text={row.original.detail} />,
   },
 ];
 const titles: Record<string, string> = {
-  environment: t("环境信息"),
-  fingerprint: t("指纹检测"),
-  consistency: t("环境一致性"),
-  automation: t("自动化特征"),
-  privacy: t("权限与隐私"),
+  environment: t("common.environment"),
+  fingerprint: t("common.fingerprint"),
+  consistency: t("common.consistency"),
+  automation: t("common.automation"),
+  privacy: t("common.permissionsPrivacy"),
 };
 function FingerprintPanel() {
-  const [algorithm, setAlgorithm] = useState<FingerprintAlgorithm | "tls">(
-    "modern",
-  );
+  const [algorithm, setAlgorithm] = useState<"modern" | "tls">("modern");
   return (
     <>
       <div className="mb-3 flex justify-end">
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button variant="outline">
-              {t("算法")}：
-              {algorithm === "modern"
-                ? "FingerprintJS (5.2.0)"
-                : algorithm === "tls"
-                  ? "JA3/JA4"
-                  : t("FingerprintJS2（旧版）")}
+              {t("browser.algorithm")}：
+              {algorithm === "modern" ? "FingerprintJS (5.3.0)" : "JA3/JA4"}
               <ChevronDown aria-hidden="true" />
             </Button>
           </DropdownMenuTrigger>
@@ -82,15 +83,11 @@ function FingerprintPanel() {
             <DropdownMenuRadioGroup
               value={algorithm}
               onValueChange={(value) => {
-                if (value === "modern" || value === "legacy" || value === "tls")
-                  setAlgorithm(value);
+                if (value === "modern" || value === "tls") setAlgorithm(value);
               }}
             >
               <DropdownMenuRadioItem value="modern">
-                FingerprintJS (5.2.0)
-              </DropdownMenuRadioItem>
-              <DropdownMenuRadioItem value="legacy">
-                {t("FingerprintJS2（旧版）")}
+                FingerprintJS (5.3.0)
               </DropdownMenuRadioItem>
               <DropdownMenuRadioItem value="tls">
                 JA3/JA4 Fingerprint
@@ -99,19 +96,11 @@ function FingerprintPanel() {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
-      {algorithm === "tls" ? (
-        <TlsFingerprint />
-      ) : (
-        <FingerprintResults key={algorithm} algorithm={algorithm} />
-      )}
+      {algorithm === "tls" ? <TlsFingerprint /> : <FingerprintResults />}
     </>
   );
 }
-function FingerprintResults({
-  algorithm,
-}: {
-  algorithm: FingerprintAlgorithm;
-}) {
+function FingerprintResults() {
   const [result, setResult] =
     useState<Awaited<ReturnType<typeof fingerprint>>>();
   const [previous, setPrevious] = useState<typeof result>();
@@ -123,7 +112,7 @@ function FingerprintResults({
   const initialRun = useRef<ReturnType<typeof fingerprint> | null>(null);
   useEffect(() => {
     let active = true;
-    initialRun.current ??= fingerprint(algorithm);
+    initialRun.current ??= fingerprint();
     void initialRun.current.then(
       (next) => {
         if (active) {
@@ -133,7 +122,13 @@ function FingerprintResults({
       },
       () => {
         if (active) {
-          setError(new Error(t("指纹检测未完成，请检查浏览器限制后重试。")));
+          setError(
+            new Error(
+              t(
+                "browser.fingerprintCheckDidFinishReviewBrowserRestrictionsRetry",
+              ),
+            ),
+          );
           setBusy(false);
         }
       },
@@ -141,36 +136,40 @@ function FingerprintResults({
     return () => {
       active = false;
     };
-  }, [algorithm]);
+  }, []);
   async function run() {
     setBusy(true);
     setError(undefined);
     try {
-      const next = await withDetectionAnimation(() => fingerprint(algorithm));
+      const next = await withDetectionAnimation(() => fingerprint());
       setPrevious(result);
       setResult(next);
-      toast.success(t("指纹检测完成"));
+      toast.success(t("browser.fingerprintCheckComplete"));
     } catch {
-      toast.error(t("指纹检测失败，请重试"));
-      setError(new Error(t("指纹检测未完成，请检查浏览器限制后重试。")));
+      toast.error(t("browser.fingerprintCheckFailedPleaseRetry"));
+      setError(
+        new Error(
+          t("browser.fingerprintCheckDidFinishReviewBrowserRestrictionsRetry"),
+        ),
+      );
     } finally {
       setBusy(false);
     }
   }
   return (
     <>
-      <ToolCard title={t("浏览器指纹")}>
+      <ToolCard title={t("common.browserFingerprint")}>
         <div className="row-between gap-3">
           <p className="small muted">
-            {t("在本地计算，仅比较当前页面内的结果。")}
+            {t("browser.calculatedLocallyComparesResultsWithinCurrentPage")}
           </p>
           <Button disabled={busy} onClick={run}>
             {busy ? (
-              <Pending>{t("检测中…")}</Pending>
+              <Pending>{t("common.checking")}</Pending>
             ) : result ? (
-              t("再次检测")
+              t("browser.checkAgain")
             ) : (
-              t("开始检测")
+              t("browser.startCheck")
             )}
           </Button>
         </div>
@@ -178,26 +177,26 @@ function FingerprintResults({
         {result && (
           <Facts
             rows={[
-              [t("FingerprintJS 版本"), result.version],
+              [t("browser.fingerprintjsVersion"), result.version],
               ["Visitor ID", result.visitorId],
               [
-                t("与上次比较"),
+                t("browser.comparedWithPreviousResult"),
                 previous
                   ? previous.visitorId === result.visitorId
-                    ? t("相同")
-                    : t("发生变化")
-                  : t("尚无上次结果"),
+                    ? t("browser.same")
+                    : t("browser.changed")
+                  : t("browser.noPreviousResult"),
               ],
             ]}
           />
         )}
         <p className="small muted mt-2">
-          {t("标识相同不代表同一设备；指纹不是验证码，也没有“通过”结论。")}
+          {t("browser.matchingIdentifiersDoProveSameDeviceFingerprintCaptcha")}
         </p>
       </ToolCard>
       {result && (
         <div className="mt-3">
-          <ToolCard title={t("指纹组成")}>
+          <ToolCard title={t("browser.fingerprintComponents")}>
             <DataTable
               className="fingerprint-table"
               getRowId={(row) => row.name}
@@ -207,14 +206,16 @@ function FingerprintResults({
               columns={[
                 {
                   accessorKey: "name",
-                  header: t("项目"),
+                  header: t("common.item"),
                   cell: ({ row }) => (
                     <UnderlineHover asChild>
                       <button
                         type="button"
                         className="max-w-full truncate text-left text-primary focus-visible:outline-ring"
                         onClick={() => setDetail(row.original)}
-                        aria-label={t("查看 {0} 详情", [row.original.name])}
+                        aria-label={t("common.viewDetails", [
+                          row.original.name,
+                        ])}
                       >
                         {fieldLabel(row.original.name)}
                       </button>
@@ -223,7 +224,7 @@ function FingerprintResults({
                 },
                 {
                   accessorKey: "value",
-                  header: t("检测数据"),
+                  header: t("browser.diagnosticData"),
                   cell: ({ row }) => (
                     <CompactText
                       text={fingerprintSummary(
@@ -235,15 +236,15 @@ function FingerprintResults({
                 },
                 {
                   id: "change",
-                  header: t("与上次比较"),
+                  header: t("browser.comparedWithPreviousResult"),
                   cell: ({ row }) => {
                     const before = previous?.components.find(
                       (item) => item.name === row.original.name,
                     );
                     return before
                       ? before.value === row.original.value
-                        ? t("相同")
-                        : t("变化")
+                        ? t("browser.same")
+                        : t("browser.change")
                       : "—";
                   },
                 },
@@ -257,8 +258,10 @@ function FingerprintResults({
         onOpenChange={(open) => {
           if (!open) setDetail(null);
         }}
-        title={t("{0} · 详情", [detail ? fieldLabel(detail.name) : t("指纹")])}
-        description={t("本次检测读取的指纹组成数据。")}
+        title={t("common.namedDetails", [
+          detail ? fieldLabel(detail.name) : t("browser.fingerprint"),
+        ])}
+        description={t("browser.fingerprintComponentDataCollectedByThisCheck")}
       >
         {detail && (
           <FormattedResult
@@ -297,18 +300,18 @@ function Checks({ page }: { page: string }) {
                 await withDetectionAnimation(() =>
                   query.refetch({ throwOnError: true }),
                 );
-                toast.success(t("{0}检测完成", [titles[page]]));
+                toast.success(t("browser.namedCheckComplete", [titles[page]]));
               } catch {
-                toast.error(t("检测失败，请重试"));
+                toast.error(t("browser.checkFailedPleaseRetry"));
               } finally {
                 setRefreshing(false);
               }
             }}
           >
             {query.isFetching || refreshing ? (
-              <Pending>{t("检测中…")}</Pending>
+              <Pending>{t("common.checking")}</Pending>
             ) : (
-              t("重新检测")
+              t("common.runAgain")
             )}
           </Button>
         </div>
@@ -319,13 +322,15 @@ function Checks({ page }: { page: string }) {
         data={query.data ?? []}
         columns={columns}
         empty={
-          query.isFetching ? <Pending>{t("检测中…")}</Pending> : t("暂无结果")
+          query.isFetching ? (
+            <Pending>{t("common.checking")}</Pending>
+          ) : (
+            t("common.noResults")
+          )
         }
       />
       <p className="small muted mt-3">
-        {t(
-          "仅展示可观察到的信号，不能据此判断浏览器品牌、真人身份或验证码通过率。",
-        )}
+        {t("browser.observableSignalsShownTheyCannotDetermineBrowserBrand")}
       </p>
     </ToolCard>
   );
@@ -333,9 +338,9 @@ function Checks({ page }: { page: string }) {
 export default function BrowserPage({ page }: { page: string }) {
   return (
     <div className="browser-diagnostics">
-      <PageHeading title={titles[page]} description="" />
+      <PageHeading title={titles[page]} />
       {page === "environment" ? (
-        <ToolCard title={t("浏览器环境")}>
+        <ToolCard title={t("common.browserEnvironment")}>
           <Facts
             rows={environmentRows().map(([name, value]) => [
               name,

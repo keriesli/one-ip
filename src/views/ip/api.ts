@@ -1,18 +1,24 @@
 import { t } from "@/i18n";
+import { sameIp } from "@/lib/ip-address";
 import { endpoint, request } from "@/lib/network";
 import type { Geo } from "@/lib/types";
-import { adaptCoffee, type CoffeeIp } from "./coffee.ts";
+import { adaptCoffee, coffeeIpSchema } from "./coffee.ts";
+import type { IpNetwork } from "./route-graph/types.ts";
 
 export async function lookupIp(ip: string, signal?: AbortSignal) {
-  const data = await request<CoffeeIp>(
+  const data = await request<unknown>(
     `https://ip.net.coffee/api/ip/lookup/${encodeURIComponent(ip)}`,
     { signal, mode: "cors", credentials: "omit", cache: "no-store" },
   );
-  const normalize = (value: string) =>
-    value.includes(":") ? new URL(`https://[${value}]/`).hostname : value;
-  if (typeof data.ip !== "string" || normalize(data.ip) !== normalize(ip))
-    throw new Error(t("IP 数据源返回的地址不匹配"));
-  return adaptCoffee(data);
+  const result = coffeeIpSchema.safeParse(data);
+  if (!result.success)
+    throw new Error(t("api.theIpLocationSourceReturnedNoValidResult"));
+  if (!sameIp(result.data.ip, ip))
+    throw new Error(t("ip.ipReturnedSourceDoesMatchRequestedAddress"));
+  return adaptCoffee(result.data);
 }
 export const currentIp = (signal?: AbortSignal) =>
   endpoint<Geo>("/me", { signal });
+
+export const ipNetwork = (ip: string, signal?: AbortSignal) =>
+  endpoint<IpNetwork>(`/ip/network/${encodeURIComponent(ip)}`, { signal });

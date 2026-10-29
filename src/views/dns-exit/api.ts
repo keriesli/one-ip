@@ -22,7 +22,29 @@ export const dnsSources = [
     samples: 3,
   },
 ] as const;
-export type DnsResolver = { ip: string; geo: string };
+export type DnsResolver = {
+  ip: string;
+  geo: string;
+  country?: string;
+  isp?: string;
+};
+
+const isoCountry = (value: unknown) =>
+  typeof value === "string" && /^[a-z]{2}$/i.test(value)
+    ? { country: value.toUpperCase() }
+    : {};
+const placeholder = /^(?:none|unknown|n\/a|-)$/i;
+const text = (value: unknown): value is string =>
+  typeof value === "string" && value.trim() !== "" && !placeholder.test(value);
+// Fastly reports "GOOGLE - Google LLC, US"; keep the readable organisation.
+const ispName = (value: unknown) => {
+  if (!text(value)) return {};
+  const isp = value
+    .replace(/^[A-Z0-9-]+ - /, "")
+    .replace(/, [A-Z]{2}$/, "")
+    .trim();
+  return text(isp) ? { isp } : {};
+};
 
 export function parseDnsResponse(source: string, data: unknown): DnsResolver[] {
   if (!data || typeof data !== "object") return [];
@@ -30,13 +52,16 @@ export function parseDnsResponse(source: string, data: unknown): DnsResolver[] {
   if (source === "Fastly") {
     const info = record.dns_resolver_info as
       Record<string, unknown> | undefined;
-    return info && typeof info.ip === "string" && info.ip
+    return info &&
+      typeof info.ip === "string" &&
+      /^[\da-fA-F:.]+$/.test(info.ip) &&
+      /[.:]/.test(info.ip)
       ? [
           {
             ip: info.ip,
-            geo: [info.cc, info.as_name]
-              .filter((v) => typeof v === "string")
-              .join(" · "),
+            geo: [info.cc, info.as_name].filter(text).join(" · "),
+            ...isoCountry(info.cc),
+            ...ispName(info.as_name),
           },
         ]
       : [];
@@ -47,10 +72,9 @@ export function parseDnsResponse(source: string, data: unknown): DnsResolver[] {
       return [
         {
           ip,
-          geo: value
-            .slice(1)
-            .filter((v) => typeof v === "string")
-            .join(" · "),
+          geo: value.slice(1).filter(text).join(" · "),
+          ...isoCountry(value[0]),
+          ...ispName(value[2]),
         },
       ];
     }
@@ -59,9 +83,9 @@ export function parseDnsResponse(source: string, data: unknown): DnsResolver[] {
       return [
         {
           ip,
-          geo: [info.Country, info.City, info.ISP]
-            .filter((v) => typeof v === "string")
-            .join(" · "),
+          geo: [info.Country, info.City, info.ISP].filter(text).join(" · "),
+          ...isoCountry(info.CountryCode),
+          ...ispName(info.ISP),
         },
       ];
     }
@@ -85,7 +109,7 @@ export async function sampleDnsSource(
   );
   signal.throwIfAborted();
   const results = parseDnsResponse(source.name, data);
-  if (!results.length) throw new Error(t("未获取到 DNS 出口"));
+  if (!results.length) throw new Error(t("dns.noDnsEgressObtained"));
   return results;
 }
 
@@ -129,6 +153,8 @@ export async function detectDnsExits(
               const found = results.find((item) => item.ip === resolver.ip);
               if (found) {
                 found.samples++;
+                found.country ??= resolver.country;
+                found.isp ??= resolver.isp;
                 if (!found.sources.includes(source.name))
                   found.sources.push(source.name);
               } else
@@ -157,6 +183,6 @@ export async function detectDnsExits(
     );
   }
   if (!state.results.length)
-    throw new Error(t("DNS 出口检测失败，可能受网络、代理或跨域限制"));
+    throw new Error(t("dns.dnsEgressCheckFailedPossiblyDueNetworkProxy"));
   return state;
 }

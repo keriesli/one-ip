@@ -4,7 +4,7 @@ import worker from "../.worker-test/index.js";
 import {
   challengeConfig,
   verifyChallenge,
-} from "../public/worker/challenges.js";
+} from "../worker/challenges.js";
 
 const hostname = "tools.example.com";
 const env = {

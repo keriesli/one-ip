@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import worker from "../.worker-test/index.js";
-import { parseQwenStatus } from "../public/worker/cloud-status.js";
+import { parseQwenStatus } from "../worker/cloud-status.js";
 
 const catalog = {
   success: true,
